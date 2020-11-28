@@ -145,7 +145,7 @@ yr = dfUs['Year'].astype(str)+'-'+dfUs['Week'].astype(str).str.pad(2,fillchar='0
 dfUs['YYYY-WW'] = yr
 
 #We also need a time based component that's numeric for use in a regression and to make plotting easier.
-#Encode Year-Week as a fraction of a year:
+#Encode Year-Week as a fraction of a year (each week is one 52nd of a year, but need to start counting at 0 not 1)
 dfUs['YearValue']=dfUs['Year']+ ((dfUs['Week']-1)/52.0)
 
 print(dfUs[:5])
@@ -178,7 +178,7 @@ print(totalDeathsIn2018)
 
 #And visualise the data:
 dfUs.plot(title='US Mortality by Week',x='YearValue',y=['Deaths'],figsize=(12,8),ylim=(40000,80000))
-
+plt.vlines(MARCH2020,dfUs.Deaths.min(),dfUs.Deaths.max(),color='red')
 ```
 
     2839076.0
@@ -187,7 +187,7 @@ dfUs.plot(title='US Mortality by Week',x='YearValue',y=['Deaths'],figsize=(12,8)
 
 
 
-    <AxesSubplot:title={'center':'US Mortality by Week'}, xlabel='YearValue'>
+    <matplotlib.collections.LineCollection at 0x7f0bcd80f350>
 
 
 
@@ -198,12 +198,20 @@ dfUs.plot(title='US Mortality by Week',x='YearValue',y=['Deaths'],figsize=(12,8)
 
 
 ---
+# Basic steps
+
+- In order to determine if the behavior in 2020 is 'expected' or not, lets first
+ build a model to predict the expected mortality rate
+- Lets build & evaluate the quality of our model on our 2014-2019 data
+- Then lets use the model to predict what "should" have happened in 2020 and compare that to the actuals.
+
+
+---
 # What's a "normal" number of people that die by week?
 
-Well - there is a *strong* cyclical component there, right?  Any analysis we do had better take that into account. 
+From looking at the above plot, there is a *strong* cyclical component there, right?  Any analysis we do had better take that into account. 
 
-Lets take all the data EXCEPT for 2020, and figure out what the number of people that die each week
-by averaging the mortality by week for 2014-2019:
+Lets start with 2014-2019 in a dataframe called 'dfOld' and look at the data by week-of-year:
 
 
 ```python
@@ -212,7 +220,7 @@ by averaging the mortality by week for 2014-2019:
 dfOld = dfUs[dfUs['Year'] < 2020]
 #dfOld.tail()
 
-#Lets try a simple mean/median by week as two simple predictors
+#Lets try a simple mean/median by week:
 avgDeathsDf = dfOld.groupby('Week').agg({'Deaths':[np.median,np.mean]}).reset_index()
 print(avgDeathsDf[:5])
 print(avgDeathsDf[-5:])
@@ -221,26 +229,6 @@ vals = avgDeathsDf.values;
 dictMedian = {a : b for a,b,c in vals}
 dictMean = {a : c for a,b,c in vals}
 print(dictMedian)
-
-
-#And, because machine learning is the new hotness, lets try using XGBoost to build a 
-# regression model for a more sophisticated predictor:
-#Big thanks for this guy: https://www.geeksforgeeks.org/xgboost-for-regression/
-xgBoostDfXold = dfOld[['Year', 'Week']].copy()
-xgBoostDfYold = dfOld['Deaths'].copy()
-train_X, test_X, train_y, test_y = train_test_split(xgBoostDfXold, xgBoostDfYold, test_size = 0.3, random_state=42) 
- 
-xgb_r = xg.XGBRegressor(objective ='reg:squarederror', n_estimators = 10, seed = 123) 
-xgb_r.fit(train_X, train_y) 
-
-# Use the model to predict our test data
-xgbPredTest = xgb_r.predict(test_X) 
-
-#Now use it to predict ALL the values in the dataset
-xgBoostDfXall = dfUs[['Year', 'Week']].copy()
-xgbPredAll = xgb_r.predict(xgBoostDfXall) 
-
-
 ```
 
       Week   Deaths              
@@ -271,13 +259,13 @@ plt.scatter(x=dfOld['Week'],y=dfOld['Deaths'],facecolors='none', edgecolors='g')
 
 
 
-    <matplotlib.collections.PathCollection at 0x7f5872d40a50>
+    <matplotlib.collections.PathCollection at 0x7f0ba1b5a3d0>
 
 
 
 
     
-![png](output_12_1.png)
+![png](output_13_1.png)
     
 
 
@@ -286,6 +274,25 @@ plt.scatter(x=dfOld['Week'],y=dfOld['Deaths'],facecolors='none', edgecolors='g')
 #Now put the expected # of deaths by week back into the dataframe using a map of the dicts we created earlier
 dfUs['ExpectedDeathsMedian'] = dfUs['Week'].map(dictMedian)
 dfUs['ExpectedDeathsMean'] = dfUs['Week'].map(dictMean)
+
+
+#And, because machine learning is the new hotness, lets try using XGBoost to build a 
+# regression model for a more sophisticated predictor:
+#Big thanks for this guy: https://www.geeksforgeeks.org/xgboost-for-regression/
+xgBoostDfXold = dfOld[['Year', 'Week']].copy()
+xgBoostDfYold = dfOld['Deaths'].copy()
+train_X, test_X, train_y, test_y = train_test_split(xgBoostDfXold, xgBoostDfYold, test_size = 0.3, random_state=42) 
+ 
+xgb_r = xg.XGBRegressor(objective ='reg:squarederror', n_estimators = 10, seed = 123) 
+xgb_r.fit(train_X, train_y) 
+
+# Use the model to predict our test data
+xgbPredTest = xgb_r.predict(test_X) 
+
+#Now use it to predict ALL the values in the dataset
+xgBoostDfXall = dfUs[['Year', 'Week']].copy()
+xgbPredAll = xgb_r.predict(xgBoostDfXall) 
+
 #Or by using the XGBoost predicted series directly.
 dfUs['ExpectedDeathsXgb'] = xgbPredAll
 dfUs.head()
@@ -297,7 +304,7 @@ rmseMea = np.sqrt(MSE(dfUs[dfUs['Year'] < 2020]['Deaths'], dfUs[dfUs['Year'] < 2
 rmseXgb = np.sqrt(MSE(dfUs[dfUs['Year'] < 2020]['Deaths'], dfUs[dfUs['Year'] < 2020]['ExpectedDeathsXgb'])) 
 print("RMSE Median:",rmseMed,"RMSE Mean:",rmseMea,"RMSE XGBoost:",rmseXgb)
 
-#Of the 3 techniques, Mean has the lowest RMSE
+#Of the 3 techniques, Mean has the lowest RMSE (1932)
 ```
 
     RMSE Median: 1962.5359228298055 RMSE Mean: 1932.2438512364388 RMSE XGBoost: 2127.6515559635823
@@ -309,8 +316,6 @@ y_min = dfUs.Deaths.min()
 y_max = dfUs.Deaths.max()
 
 dfUs.plot(title='US Mortality by Week',x='YearValue',y=['Deaths','ExpectedDeathsMean'],figsize=(12,8),ylim=(40000,80000))
-#Why can't i draw vertical year lines?
-#plt.vlines(x=['2015-01','2016-01'],ymin=y_min, ymax=y_max)
 #Draw a line at March 2020
 plt.vlines(MARCH2020,dfUs.Deaths.min(),dfUs.Deaths.max(),color='red')
 ```
@@ -318,13 +323,41 @@ plt.vlines(MARCH2020,dfUs.Deaths.min(),dfUs.Deaths.max(),color='red')
 
 
 
-    <matplotlib.collections.LineCollection at 0x7f5873004850>
+    <matplotlib.collections.LineCollection at 0x7f0ba0f54750>
 
 
 
 
     
-![png](output_14_1.png)
+![png](output_15_1.png)
+    
+
+
+---
+Lets plot the rediduals - The actuals - predicteds
+
+
+
+```python
+residualsY = dfUs['Deaths']-dfUs['ExpectedDeathsMean']
+residualsX = dfUs['YearValue']
+plt.figure(figsize=(12,8))
+plt.plot(residualsX.to_numpy(),residualsY.to_numpy())
+plt.title("Model Residuals")
+plt.hlines(0,min(residualsX), max(residualsX),color='black')
+plt.vlines(MARCH2020,min(residualsY),max(residualsY),color='red')
+```
+
+
+
+
+    <matplotlib.collections.LineCollection at 0x7f0ba0dde710>
+
+
+
+
+    
+![png](output_17_1.png)
     
 
 
@@ -388,6 +421,26 @@ print(dictMeanAdv)
 
 
 ```python
+#Here's the linear fit of the 2014-2019 data:
+plt.plot(x,y_pred)
+plt.scatter(x=dfOld['YearValue'],y=dfOld['Deaths'])
+```
+
+
+
+
+    <matplotlib.collections.PathCollection at 0x7f0ba0d50390>
+
+
+
+
+    
+![png](output_20_1.png)
+    
+
+
+
+```python
 #Plot overall mortality by week of year.  
 avgDeathsDfAdv.plot.line(x='Week', y='PredDeathResidual',title='Average US Mortality by Week',linewidth=3)
 plt.scatter(x=dfYearAdjusted['Week'],y=dfYearAdjusted['PredDeathResidual'],facecolors='none', edgecolors='g')
@@ -397,19 +450,19 @@ plt.scatter(x=dfYearAdjusted['Week'],y=dfYearAdjusted['PredDeathResidual'],facec
 
 
 
-    <matplotlib.collections.PathCollection at 0x7f5872f5b250>
+    <matplotlib.collections.PathCollection at 0x7f0ba0d069d0>
 
 
 
 
     
-![png](output_17_1.png)
+![png](output_21_1.png)
     
 
 
 
 ```python
-#Now run the yearly predictor for all the data:
+#Now run the yearly predictor for all the data and add in the expected mean residual by week:
 yPredYear = model.predict(dfUs['YearValue'].to_numpy().reshape((-1, 1)))
 dfUs['PredJustYear']=yPredYear #The year component
 dfUs['PredJustMonth']=dfUs['Week'].map(dictMeanAdv) #The week component
@@ -548,6 +601,11 @@ print("RMSE Mean (Week only model):",rmseMea,"RMSE Mean (Year+Week model):",rmse
     RMSE Mean (Week only model): 1932.2438512364388 RMSE Mean (Year+Week model): 1139.9943365403842
 
 
+---
+# Model Improved!
+
+The RMSE of our model dropped from 1932 (when we just use the week mean) to 1140 (when we used the time based linear regression plus the week mean of the residuals.)
+
 
 ```python
 #Use the expected death mean values to calculate the amount of deaths that are above or below what we'd expect 
@@ -579,18 +637,18 @@ plt.vlines(MARCH2020,dfUs.Deaths.min(),dfUs.Deaths.max(),color='red')
 
 
 
-    <matplotlib.collections.LineCollection at 0x7f5872dd3fd0>
+    <matplotlib.collections.LineCollection at 0x7f0ba0271790>
 
 
 
 
     
-![png](output_22_1.png)
+![png](output_27_1.png)
     
 
 
 ---
-I'm much happier with this model than with the first.
+This model fits our historical data much better, so I trust its 2020 predictions better than the previous iteration.
 
 
 ```python
@@ -604,13 +662,13 @@ plt.vlines(MARCH2020,dfUs.ExtraDeathsMean.min(),dfUs.ExtraDeathsMean.max(),color
 
 
 
-    <matplotlib.collections.LineCollection at 0x7f587049e350>
+    <matplotlib.collections.LineCollection at 0x7f0ba017a190>
 
 
 
 
     
-![png](output_24_1.png)
+![png](output_29_1.png)
     
 
 
@@ -628,11 +686,23 @@ Lets just put some numbers behind 'pretty obvious' - Lets use a ttest to see if 
 preMarch2020 = dfUs[dfUs.YearValue < MARCH2020]['ExtraDeathsMean'].to_numpy()
 pstMarch2020 = dfUs[dfUs.YearValue >= MARCH2020]['ExtraDeathsMean'].to_numpy()
 
+#Use the t-test to test if these populations are the same:
 tResults = ttest_ind(preMarch2020,pstMarch2020,equal_var=False)
 print(tResults)
+print()
+
+#Sum up the deviations from expected post March 2020:
+totalExtraDeaths = round(np.sum(pstMarch2020));
+totalDeaths = round(np.sum(dfUs[dfUs.YearValue >= MARCH2020]['Deaths'].to_numpy()));
+print("Since March 2020, there were",(format(totalExtraDeaths, ',d')) ,"more deaths than expected by the historical model");
+pct = round(totalExtraDeaths * 100 / totalDeaths)
+print("This represents ",pct,"% of all deaths in this period.")
 ```
 
     Ttest_indResult(statistic=-7.842095591925654, pvalue=3.0485289351744048e-09)
+    
+    Since March 2020, there were 274,233 more deaths than expected by the historical model
+    This represents  12 % of all deaths in this period.
 
 
 ---
