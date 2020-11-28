@@ -14,6 +14,7 @@ import xgboost as xg
 from sklearn.model_selection import train_test_split 
 from sklearn.metrics import mean_squared_error as MSE 
 from sklearn.linear_model import LinearRegression
+from scipy.stats import ttest_ind
 # disable chained assignments
 pd.options.mode.chained_assignment = None 
 ```
@@ -134,9 +135,11 @@ print(dfUs[-5:])
     5289  United States  2020    45  53367.0
 
 
+---
+# Feature Engineering
+
 
 ```python
-#Feature engineering:
 #Add a helpful column that's the year and week joined together with short weeks like 4 padded to '04'
 yr = dfUs['Year'].astype(str)+'-'+dfUs['Week'].astype(str).str.pad(2,fillchar='0')
 dfUs['YYYY-WW'] = yr
@@ -147,6 +150,9 @@ dfUs['YearValue']=dfUs['Year']+ ((dfUs['Week']-1)/52.0)
 
 print(dfUs[:5])
 print(dfUs[-5:])
+
+#Lets keep a variable around to represent March 2020, when things started to get crazy:
+MARCH2020 = 2020 + ((3-1)/12.0)
 
 ```
 
@@ -187,7 +193,7 @@ dfUs.plot(title='US Mortality by Week',x='YearValue',y=['Deaths'],figsize=(12,8)
 
 
     
-![png](output_8_2.png)
+![png](output_9_2.png)
     
 
 
@@ -202,7 +208,7 @@ by averaging the mortality by week for 2014-2019:
 
 ```python
 #Lets figure out what the *normal* number of deaths per week is.  
-#Create a dataframe of everything *except* 2020's deaths:
+#dfOld is a dataframe of everything *except* 2020's deaths:
 dfOld = dfUs[dfUs['Year'] < 2020]
 #dfOld.tail()
 
@@ -265,13 +271,13 @@ plt.scatter(x=dfOld['Week'],y=dfOld['Deaths'],facecolors='none', edgecolors='g')
 
 
 
-    <matplotlib.collections.PathCollection at 0x7f14ea2bbb50>
+    <matplotlib.collections.PathCollection at 0x7f5872d40a50>
 
 
 
 
     
-![png](output_11_1.png)
+![png](output_12_1.png)
     
 
 
@@ -297,10 +303,37 @@ print("RMSE Median:",rmseMed,"RMSE Mean:",rmseMea,"RMSE XGBoost:",rmseXgb)
     RMSE Median: 1962.5359228298055 RMSE Mean: 1932.2438512364388 RMSE XGBoost: 2127.6515559635823
 
 
+
+```python
+y_min = dfUs.Deaths.min()
+y_max = dfUs.Deaths.max()
+
+dfUs.plot(title='US Mortality by Week',x='YearValue',y=['Deaths','ExpectedDeathsMean'],figsize=(12,8),ylim=(40000,80000))
+#Why can't i draw vertical year lines?
+#plt.vlines(x=['2015-01','2016-01'],ymin=y_min, ymax=y_max)
+#Draw a line at March 2020
+plt.vlines(MARCH2020,dfUs.Deaths.min(),dfUs.Deaths.max(),color='red')
+```
+
+
+
+
+    <matplotlib.collections.LineCollection at 0x7f5873004850>
+
+
+
+
+    
+![png](output_14_1.png)
+    
+
+
 ---
 # Improving the Model
 
-Can we do a little bit better?  What if we first used a simple linear regression by time to account for the fact that the population is usually continuously increasing?  Then take the residuals of those predictions and put *those* into the average-by-week logic.  
+Can we do a little bit better?  It looks like there's a general issue where the model over predicts older data and under predicts newer data.  
+
+The first model really only looked at average death rates by week, and doesn't have any way to account for the fact that the overall US population is growing over time and we'd expect death rates to naturally follow.  What if we first used a simple linear regression by time to account for a gradual increase in death rates, then take the residuals of those predictions and put *those* into the average-by-week logic.  
 
 
 
@@ -313,7 +346,7 @@ model = LinearRegression().fit(x,y)
 #print(f)
 y_pred = model.predict(x)
 
-#Now use a delta y of the number of dealth minus the number of deaths predicted by the year linear model
+#Calculate the residuals left after applying the year based model:
 yPredResiduals = dfOld['Deaths']-y_pred
 week = dfOld['Week']
 #print(dy)
@@ -326,14 +359,14 @@ dfYearAdjusted['PredDeathResidual'] = yPredResiduals
 #print(dfYearAdjusted)
 
 #Lets try a simple mean/median by week as two simple predictors
-avgDeathsDfAdj = dfYearAdjusted.groupby('Week').agg({'PredDeathResidual':[np.median,np.mean]}).reset_index()
-print(avgDeathsDfAdj[:5])
-print(avgDeathsDfAdj[-5:])
-valsAdj = avgDeathsDfAdj.values;
+avgDeathsDfAdv = dfYearAdjusted.groupby('Week').agg({'PredDeathResidual':[np.median,np.mean]}).reset_index()
+print(avgDeathsDfAdv[:5])
+print(avgDeathsDfAdv[-5:])
+valsAdv = avgDeathsDfAdv.values;
 #print(vals)
-dictMedianAdj = {a : b for a,b,c in valsAdj}
-dictMeandj = {a : c for a,b,c in valsAdj}
-print(dictMedianAdj)
+dictMedianAdv = {a : b for a,b,c in valsAdv}
+dictMeanAdv = {a : c for a,b,c in valsAdv}
+print(dictMeanAdv)
 ```
 
       Week PredDeathResidual             
@@ -350,13 +383,13 @@ print(dictMedianAdj)
     50   51       2759.339555  2990.672888
     51   52       3952.846792  3675.513458
     52   53       7992.413256  7992.413256
-    {1.0: 6850.16587377619, 2.0: 6526.1086468881695, 3.0: 5154.1158836010145, 4.0: 4252.123120313743, 5.0: 4520.071129694814, 6.0: 4464.202057340415, 7.0: 4212.644830452395, 8.0: 3726.280994366738, 9.0: 3483.9119220123393, 10.0: 3794.166540590697, 11.0: 2610.5500863710186, 12.0: 2139.7454776172526, 13.0: 1498.188250729232, 14.0: 1560.7599510429427, 15.0: 1186.7027241549222, 16.0: -45.60188459861092, 17.0: -645.1538752176566, 18.0: -638.8347930384334, 19.0: -1254.8275563255884, 20.0: -2164.7610922808526, 21.0: -2111.8775465009967, 22.0: -2711.2466188551625, 23.0: -1998.8630730750738, 24.0: -2607.7321454294724, 25.0: -2785.72490871686, 26.0: -2730.3413629367715, 27.0: -2672.1459716903046, 28.0: -2931.450580443605, 29.0: -3274.695961865247, 30.0: -3678.3124160853913, 31.0: -3492.552561238059, 32.0: -3188.045324525214, 33.0: -3641.790705946856, 34.0: -3810.9071601667674, 35.0: -3381.776232521166, 36.0: -3139.580841274699, 37.0: -3120.761759095476, 38.0: -2766.1308314501075, 39.0: -2623.811749270768, 40.0: -1648.8637398896972, 41.0: -1965.6683486432303, 42.0: -1318.537420997629, 43.0: -1041.653875217773, 44.0: -945.5229475721717, 45.0: -318.0801744600758, 46.0: 252.17968038737308, 47.0: 475.6869170999853, 48.0: 567.6296902119648, 49.0: 1768.2013905256754, 50.0: 2322.3323181712767, 51.0: 2759.3395548841218, 52.0: 3952.846791596967, 53.0: 7992.413255641703}
+    {1.0: 7450.96587377619, 2.0: 7319.484955955413, 3.0: 5866.658859334925, 4.0: 5036.666096047654, 5.0: 4680.173332760615, 6.0: 4650.013902806793, 7.0: 4410.187806186305, 8.0: 3573.861709565584, 9.0: 3201.868946278429, 10.0: 3416.0428496579793, 11.0: 2542.883419704313, 12.0: 2158.5573230836308, 13.0: 1446.2312264631425, 14.0: 1350.905129842654, 15.0: 988.7456998888325, 16.0: -97.41373006498907, 17.0: -630.0731600188107, 18.0: -649.7325899726324, 19.0: -1225.2253532597872, 20.0: -2106.5514498802754, 21.0: -2108.7108798342524, 22.0: -2539.703643121291, 23.0: -2207.1964064084073, 24.0: -2621.3558363622287, 25.0: -2767.3485996496165, 26.0: -2917.674696270105, 27.0: -2787.3341262239264, 28.0: -3063.493556177593, 29.0: -3410.8196527980035, 30.0: -3567.979082752058, 31.0: -3583.3051793725463, 32.0: -3413.6312759930347, 33.0: -3623.790705946856, 34.0: -3762.283469234011, 35.0: -3500.276232521166, 36.0: -3180.9356624749876, 37.0: -3086.9284257621425, 38.0: -2818.254522382825, 39.0: -2688.41395233653, 40.0: -1834.0733822902741, 41.0: -1832.8994789107626, 42.0: -1344.558908864584, 43.0: -1237.2183388186386, 44.0: -970.7111021057935, 45.0: -427.2038653928321, 46.0: 47.30337132012937, 47.0: 423.8106080327416, 48.0: 693.8178447455866, 49.0: 1787.8250814584317, 50.0: 2202.66565150461, 51.0: 2990.6728882174552, 52.0: 3675.5134582636333, 53.0: 7992.413255641703}
 
 
 
 ```python
 #Plot overall mortality by week of year.  
-avgDeathsDfAdj.plot.line(x='Week', y='PredDeathResidual',title='Average US Mortality by Week',linewidth=3)
+avgDeathsDfAdv.plot.line(x='Week', y='PredDeathResidual',title='Average US Mortality by Week',linewidth=3)
 plt.scatter(x=dfYearAdjusted['Week'],y=dfYearAdjusted['PredDeathResidual'],facecolors='none', edgecolors='g')
 #Wow the ends of the year are dangerous times to be alive
 ```
@@ -364,13 +397,13 @@ plt.scatter(x=dfYearAdjusted['Week'],y=dfYearAdjusted['PredDeathResidual'],facec
 
 
 
-    <matplotlib.collections.PathCollection at 0x7f14ea69ce50>
+    <matplotlib.collections.PathCollection at 0x7f5872f5b250>
 
 
 
 
     
-![png](output_15_1.png)
+![png](output_17_1.png)
     
 
 
@@ -379,7 +412,7 @@ plt.scatter(x=dfYearAdjusted['Week'],y=dfYearAdjusted['PredDeathResidual'],facec
 #Now run the yearly predictor for all the data:
 yPredYear = model.predict(dfUs['YearValue'].to_numpy().reshape((-1, 1)))
 dfUs['PredJustYear']=yPredYear #The year component
-dfUs['PredJustMonth']=dfUs['Week'].map(dictMedianAdj) #The week component
+dfUs['PredJustMonth']=dfUs['Week'].map(dictMeanAdv) #The week component
 dfUs['ExpectedDeathsAdv']=dfUs['PredJustYear']+dfUs['PredJustMonth']
 dfUs.head()
 ```
@@ -432,8 +465,8 @@ dfUs.head()
       <td>59992.500000</td>
       <td>53278.285156</td>
       <td>50723.955817</td>
-      <td>6526.108647</td>
-      <td>57250.064464</td>
+      <td>7319.484956</td>
+      <td>58043.440773</td>
     </tr>
     <tr>
       <th>13835</th>
@@ -447,8 +480,8 @@ dfUs.head()
       <td>58554.666667</td>
       <td>53278.285156</td>
       <td>50738.948580</td>
-      <td>5154.115884</td>
-      <td>55893.064464</td>
+      <td>5866.658859</td>
+      <td>56605.607439</td>
     </tr>
     <tr>
       <th>13836</th>
@@ -462,8 +495,8 @@ dfUs.head()
       <td>57739.666667</td>
       <td>52629.488281</td>
       <td>50753.941343</td>
-      <td>4252.123120</td>
-      <td>55006.064464</td>
+      <td>5036.666096</td>
+      <td>55790.607439</td>
     </tr>
     <tr>
       <th>13837</th>
@@ -477,8 +510,8 @@ dfUs.head()
       <td>57398.166667</td>
       <td>52629.488281</td>
       <td>50768.934107</td>
-      <td>4520.071130</td>
-      <td>55289.005236</td>
+      <td>4680.173333</td>
+      <td>55449.107439</td>
     </tr>
     <tr>
       <th>13838</th>
@@ -492,8 +525,8 @@ dfUs.head()
       <td>57383.000000</td>
       <td>52629.488281</td>
       <td>50783.926870</td>
-      <td>4464.202057</td>
-      <td>55248.128927</td>
+      <td>4650.013903</td>
+      <td>55433.940773</td>
     </tr>
   </tbody>
 </table>
@@ -509,10 +542,10 @@ rmseMea = np.sqrt(MSE(dfUs[dfUs['Year'] < 2020]['Deaths'], dfUs[dfUs['Year'] < 2
 rmseMeaAdv = np.sqrt(MSE(dfUs[dfUs['Year'] < 2020]['Deaths'], dfUs[dfUs['Year'] < 2020]['ExpectedDeathsAdv'])) 
 print("RMSE Mean (Week only model):",rmseMea,"RMSE Mean (Year+Week model):",rmseMeaAdv)
 
-#We dropped RMSE from 1932 to 1165!
+#We dropped RMSE from 1932 to 1140!
 ```
 
-    RMSE Mean (Week only model): 1932.2438512364388 RMSE Mean (Year+Week model): 1165.5279074762302
+    RMSE Mean (Week only model): 1932.2438512364388 RMSE Mean (Year+Week model): 1139.9943365403842
 
 
 
@@ -540,21 +573,24 @@ dfUs.plot(title='US Mortality by Week',x='YearValue',y=['Deaths','ExpectedDeaths
 #Why can't i draw vertical year lines?
 #plt.vlines(x=['2015-01','2016-01'],ymin=y_min, ymax=y_max)
 #Draw a line at March 2020
-plt.vlines(2020+(2/12.0),dfUs.Deaths.min(),dfUs.Deaths.max(),color='red')
+plt.vlines(MARCH2020,dfUs.Deaths.min(),dfUs.Deaths.max(),color='red')
 ```
 
 
 
 
-    <matplotlib.collections.LineCollection at 0x7f14ea49ab90>
+    <matplotlib.collections.LineCollection at 0x7f5872dd3fd0>
 
 
 
 
     
-![png](output_20_1.png)
+![png](output_22_1.png)
     
 
+
+---
+I'm much happier with this model than with the first.
 
 
 ```python
@@ -562,25 +598,45 @@ dfUs.plot(title='US EXTRA Mortality by Week',x='YearValue',y=['ExtraDeathsMean']
 #Draw a line at y=0 (where expected deaths=actual deaths)
 plt.hlines(0,min(dfUs['YearValue']), max(dfUs['YearValue']),color='black')
 #Draw a line at March 2020
-plt.vlines(2020+(2/12.0),dfUs.ExtraDeathsMean.min(),dfUs.ExtraDeathsMean.max(),color='red')
+plt.vlines(MARCH2020,dfUs.ExtraDeathsMean.min(),dfUs.ExtraDeathsMean.max(),color='red')
 ```
 
 
 
 
-    <matplotlib.collections.LineCollection at 0x7f14ea3d9950>
+    <matplotlib.collections.LineCollection at 0x7f587049e350>
 
 
 
 
     
-![png](output_21_1.png)
+![png](output_24_1.png)
     
 
 
+---
 # Intepreting the results
 
-- There's a pretty clear deviation from 'normal' staring in early 2020 and remaining strong through the rest of the year.  Independent of *why* its pretty obvious that a lot more people are dying now than compared to the trend suggested by historical data.
+There's a pretty clear deviation from 'normal' staring in early 2020 and remaining strong through the rest of the year. Independent of why its pretty obvious that a lot more people are dying now than compared to the trend suggested by historical data.  
+
+Lets just put some numbers behind 'pretty obvious' - Lets use a ttest to see if the populations pre and post March 2020 could be considered equal:
+
+
+
+```python
+#Lets split the data into pre and post March 2020 
+preMarch2020 = dfUs[dfUs.YearValue < MARCH2020]['ExtraDeathsMean'].to_numpy()
+pstMarch2020 = dfUs[dfUs.YearValue >= MARCH2020]['ExtraDeathsMean'].to_numpy()
+
+tResults = ttest_ind(preMarch2020,pstMarch2020,equal_var=False)
+print(tResults)
+```
+
+    Ttest_indResult(statistic=-7.842095591925654, pvalue=3.0485289351744048e-09)
+
+
+---
+The pvalue is low enough (< 0.05) to confidently reject the idea that the mortality rates after March 2020 are from a similar population as the previous values.
 
 
 
@@ -588,6 +644,7 @@ plt.vlines(2020+(2/12.0),dfUs.ExtraDeathsMean.min(),dfUs.ExtraDeathsMean.max(),c
  - ~~Try using a simple ML model like XGBoost for a more sophisticated expected death rate predictor~~ (turns out mean was still a better predictor!)
  - ~~The "EXTRA Mortality" shows I still have a time based bias.  I bet correcting historical averages for US population by year would help account for that.~~ Splitting the model into a contiuous linear fit plus a by-week mean of the rediduals helped reduce the RMSE from 1932 to 1165
  - ~~Why can't i get nice x-axis tickmarks showing the start of each year?  Darn you matplotlib!~~ Encoding YYYY-WW into a year fraction (2020-05 -> 2020+(5-1/52)) makes for much nicer plots
+ 
 
 
 ```python
