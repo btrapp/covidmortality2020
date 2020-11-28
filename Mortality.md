@@ -188,7 +188,7 @@ dfUs.plot(title='US Mortality by Week',x='YYYY-WW',y=['Deaths'],figsize=(12,8),y
 ---
 # What's a "normal" number of people that die by week?
 
-Well - there is a *strong* cyclical component there, right?  Any analysis we do had better take that into account.  lets try some techniques to account for that.
+Well - there is a *strong* cyclical component there, right?  Any analysis we do had better take that into account. 
 
 Lets take all the data EXCEPT for 2020, and figure out what the number of people that die each week
 by averaging the mortality by week for 2014-2019:
@@ -274,8 +274,8 @@ plt.scatter(x=dfOld['Week'],y=dfOld['Deaths'],facecolors='none', edgecolors='g')
 #Now put the expected # of deaths by week back into the dataframe using a map of the dict we created earlier
 dfUs['ExpectedDeathsMedian'] = dfUs['Week'].map(dictMedian)
 dfUs['ExpectedDeathsMean'] = dfUs['Week'].map(dictMean)
+#Or by using the XGBoost predicted series directly.
 dfUs['ExpectedDeathsXgb'] = xgbPredAll
-dfUs['ExtraDeathsMean'] = dfUs['Deaths']-dfUs['ExpectedDeathsMean']
 dfUs.head()
 
 
@@ -286,6 +286,11 @@ rmseXgb = np.sqrt(MSE(dfUs[dfUs['Year'] < 2020]['Deaths'], dfUs[dfUs['Year'] < 2
 print("RMSE Median:",rmseMed,"RMSE Mean:",rmseMea,"RMSE XGBoost:",rmseXgb)
 
 #Of the 3 techniques, Mean has the lowest RMSE
+
+#Use the expected death mean values to calculate the amount of deaths that are above or below what we'd expect 
+# from our historical model
+dfUs['ExtraDeathsMean'] = dfUs['Deaths']-dfUs['ExpectedDeathsMean']
+
 ```
 
     RMSE Median: 1962.5359228298055 RMSE Mean: 1932.2438512364388 RMSE XGBoost: 2127.6515559635823
@@ -325,7 +330,7 @@ dfUs.plot(title='US Mortality by Week',x='YYYY-WW',y=['Deaths','ExpectedDeathsMe
 
 ```python
 dfUs.plot(title='US EXTRA Mortality by Week',x='YYYY-WW',y=['ExtraDeathsMean'],figsize=(12,8))
-
+#plt.hlines(0,min(dfUs['YYYY-WW']), max(dfUs['YYYY-WW']))
 ```
 
 
