@@ -1,6 +1,7 @@
 # Source
-This project is shared on gitub at [https://github.com/btrapp/covidmortality2020](https://github.com/btrapp/covidmortality2020) please
-feel free to submit pull requests to improve it or clone it to continue your own work.
+
+This project is shared on gitub at [https://github.com/btrapp/covidmortality2020](https://github.com/btrapp/covidmortality2020) 
+please feel free to submit pull requests to improve it or clone it to continue your own work.
 ---
 
 
@@ -33,8 +34,7 @@ In order to reduce ambiguity, lets ONLY use the "All Cause" column from this dat
  week from all causes, so we don't have to worry about if the underlying cause of death was attributed correctly
  or not.  Let's just see if we can compare total death rates in 2020 to the historical averages of 2014-2019 for the same periods.
  
-Also, fun fact, the dataset contains deaths by jurisdiction for each state, plus summary rows at the end of the dataset for the entire US.  So don't just sum up all the data by year/week or you'll double count.  Google says 2.8 million peopled died in 2018 so there's a quick sanity checker to ensure we're not too far off.
-
+Also, fun fact, the dataset contains deaths by jurisdiction for each state, plus summary rows at the end of the dataset for the entire US.  So don't just sum up all the data by year/week or you'll double count.  Google says 2.8 million people died in 2018 so there's a quick sanity checkpoint.
 
 
 
@@ -164,7 +164,7 @@ print(dfUs[-5:])
 totalDeathsIn2018 = dfUs.loc[dfUs['Year']==2018]['Deaths'].sum();
 print(totalDeathsIn2018)
 
-#And lets visualise the data:
+#And visualise the data:
 dfUs.plot(title='US Mortality by Week',x='YYYY-WW',y=['Deaths'],figsize=(12,8),ylim=(40000,80000))
 
 ```
@@ -259,7 +259,7 @@ plt.scatter(x=dfOld['Week'],y=dfOld['Deaths'],facecolors='none', edgecolors='g')
 
 
 
-    <matplotlib.collections.PathCollection at 0x7f7a44e35550>
+    <matplotlib.collections.PathCollection at 0x7f4375dc3d10>
 
 
 
@@ -271,7 +271,7 @@ plt.scatter(x=dfOld['Week'],y=dfOld['Deaths'],facecolors='none', edgecolors='g')
 
 
 ```python
-#Now put the expected # of deaths by week back into the dataframe using a map of the dict we created earlier
+#Now put the expected # of deaths by week back into the dataframe using a map of the dicts we created earlier
 dfUs['ExpectedDeathsMedian'] = dfUs['Week'].map(dictMedian)
 dfUs['ExpectedDeathsMean'] = dfUs['Week'].map(dictMean)
 #Or by using the XGBoost predicted series directly.
